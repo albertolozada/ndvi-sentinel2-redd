@@ -39,7 +39,7 @@ Contains modified Copernicus Sentinel data 2018-2025. © ESA WorldCover project 
 2. Reproject to the park's UTM zone (EPSG:32618) for every measurement, and compare the calculated area with the area in RUNAP.
 3. Search the dry-season Sentinel-2 L2A scenes (December to March) with the STAC API, and list every scene used.
 4. Cross-check terrio against GDAL: the same window of a real band is read with both libraries and compared pixel by pixel.
-5. Read red (B04), NIR (B08) and the Scene Classification Layer with terrio, from the COG overview closest to the analysis grid. Convert to reflectance with each scene's scale and offset (products since 25 January 2022 carry a -1000 DN offset), mask clouds and shadows, resample onto one 40 m grid and take the per-pixel median NDVI.
+5. Read red (B04), NIR (B08) and the Scene Classification Layer with terrio, from the COG overview closest to the analysis grid. Convert to reflectance (the +1000 DN offset of products since 25 January 2022 is detected per scene from the pixels), mask clouds and shadows, resample onto one 40 m grid and take the per-pixel median NDVI.
 6. Flag **potential vegetation loss**: pixels with NDVI above 0.6 in 2019 that dropped by more than 0.2 in 2025.
 7. Cross the loss with ESA WorldCover 2021 (majority resampling onto the same grid).
 8. Repeat the composite for every dry season 2019-2025 on a 100 m grid.
@@ -55,6 +55,7 @@ Contains modified Copernicus Sentinel data 2018-2025. © ESA WorldCover project 
 - **NDVI loss is not deforestation:** it also responds to phenology, drought, fire and residual clouds. Compare with official data (IDEAM / SMByC) or Global Forest Watch before drawing conclusions
 - **Clouds:** persistent cloud cover in the Amazon leaves some pixels with few or no clear observations
 - **Land cover:** ESA WorldCover is a single date (2021), between the two seasons compared
+- **Reflectance offset:** detected per scene from the pixels (5th percentile of clear red DN); the notebook logs the declared and the applied offset of every scene
 - **terrio is young (v0.x):** its API may change, which is why the notebook checks it against GDAL on real data
 
 ## Reproduce it

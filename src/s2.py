@@ -111,12 +111,11 @@ def read_to_grid(href: str, grid: Grid, resampling=Resampling.average,
 
 
 def scale_offset(item, asset: str) -> tuple[float, float, str]:
-    """Scale and offset to turn digital numbers into surface reflectance.
+    """Scale and offset declared in the STAC metadata of an asset ('raster:bands').
 
-    Uses the STAC 'raster:bands' metadata when the item has it. Otherwise falls back
-    to the ESA rule: since processing baseline 04.00 (25 Jan 2022) L2A products carry
-    an offset of -1000 DN, i.e. reflectance = (DN - 1000) / 10000.
-    Ignoring the offset biases NDVI between scenes before and after 2022.
+    Falls back to the ESA rule when the item has no 'raster:bands': since processing
+    baseline 04.00 (25 Jan 2022) L2A products carry an offset of -1000 DN.
+    Reported in the log; the offset actually applied comes from `dn_offset`.
     """
     bands = item.assets[asset].extra_fields.get("raster:bands") or [{}]
     scale, offset = bands[0].get("scale"), bands[0].get("offset")
@@ -124,6 +123,22 @@ def scale_offset(item, asset: str) -> tuple[float, float, str]:
         return float(scale), float(offset or 0.0), "raster:bands"
     baseline = float(item.properties.get("s2:processing_baseline", 0) or 0)
     return 1e-4, (-0.1 if baseline >= 4 else 0.0), f"processing baseline {baseline:.2f}"
+
+
+def dn_offset(red_dn: np.ndarray, clear: np.ndarray, baseline: float) -> tuple[int, float]:
+    """Offset (in DN) actually present in the pixels: 1000 or 0.
+
+    The STAC metadata does not always state the offset consistently with the stored
+    values, so it is decided from the data: with the offset inside the values, every
+    land pixel has red >= 1000 DN; vegetation without it has red well below 1000 DN.
+    Rule: offset present if baseline >= 4 and the 5th percentile of clear red DN >= 1000.
+    Returns (offset_dn, p5_red_dn).
+    """
+    vals = red_dn[clear & np.isfinite(red_dn)]
+    if vals.size == 0:
+        return 0, float("nan")
+    p5 = float(np.percentile(vals, 5))
+    return (1000 if baseline >= 4 and p5 >= 1000 else 0), p5
 
 
 # ---------------------------------------------------------------- search
@@ -151,7 +166,8 @@ def items_table(items) -> pd.DataFrame:
         "mgrs_tile": i.properties.get("s2:mgrs_tile") or i.properties.get("grid:code"),
         "cloud_cover_%": round(i.properties.get("eo:cloud_cover", np.nan), 1),
         "processing_baseline": i.properties.get("s2:processing_baseline"),
-        # Earth Search flag: True when the -1000 DN offset was already removed from the COG
+        # Earth Search flag about the -1000 DN offset, kept for traceability only:
+        # the offset actually used is decided from the pixels (see dn_offset)
         "boa_offset_applied": i.properties.get("earthsearch:boa_offset_applied"),
     } for i in items])
 
@@ -168,20 +184,24 @@ def scene_ndvi(item, grid: Grid) -> tuple[xr.DataArray | None, dict]:
     red = read_to_grid(item.assets["red"].href, grid, Resampling.average, NATIVE_RES["red"])
     nir = read_to_grid(item.assets["nir"].href, grid, Resampling.average, NATIVE_RES["nir"])
 
-    s_r, o_r, src = scale_offset(item, "red")
-    s_n, o_n, _ = scale_offset(item, "nir")
-    red = red * s_r + o_r
-    nir = nir * s_n + o_n
-
     clear = scl.isin(SCL_CLEAR)
+
+    scale, meta_offset, meta_src = scale_offset(item, "red")
+    baseline = float(item.properties.get("s2:processing_baseline", 0) or 0)
+    off_dn, p5 = dn_offset(red.values, clear.values, baseline)
+    red = (red - off_dn) * scale
+    nir = (nir - off_dn) * scale
+
     ndvi = ((nir - red) / (nir + red)).where(clear & (nir + red > 0))
     ndvi = ndvi.clip(-1, 1).astype("float32")
 
     covered = int(scl.notnull().sum())
     log.update({
         "status": "ok",
-        "reflectance_from": src,
-        "offset": o_r,
+        "baseline": baseline,
+        "metadata_offset": meta_offset,
+        "red_p5_dn": round(p5, 0),
+        "offset_applied_dn": off_dn,
         "pixels_in_scene": covered,
         "clear_%": round(100 * int(clear.sum()) / covered, 1) if covered else 0.0,
     })
