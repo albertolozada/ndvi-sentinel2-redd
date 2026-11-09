@@ -100,7 +100,7 @@ conda activate ndvi-sentinel2-redd
 jupyter lab notebooks/01_analysis.ipynb
 ```
 
-Without conda, a virtual environment works too: `pip install "terrio[xarray]" pystac-client rioxarray geopandas contextily matplotlib-scalebar requests jupyterlab`.
+Without conda, a virtual environment works too: `pip install "terrio[xarray]==0.8.0" pystac-client rioxarray geopandas shapely pyproj pandas xarray dask contextily matplotlib matplotlib-scalebar requests jupyterlab`.
 
 ## Repository structure
 

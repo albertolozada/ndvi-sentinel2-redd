@@ -15,7 +15,7 @@ dependencies:
   - matplotlib-scalebar
   - contextily
   - pystac-client
-  - terrio
+  - terrio=0.8.0
   - rioxarray      # GDAL-based reference for the terrio cross-check
   - jupyterlab
   - pip
