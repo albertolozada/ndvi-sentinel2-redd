@@ -12,6 +12,7 @@ is the per-pixel median NDVI.
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass
 
 import geopandas as gpd
@@ -208,42 +209,85 @@ def scene_ndvi(item, grid: Grid) -> tuple[xr.DataArray | None, dict]:
     return ndvi, log
 
 
+def acquisition_key(item) -> tuple:
+    """Items of the same satellite on the same day belong to one acquisition.
+
+    Earth Search splits each acquisition into MGRS tiles that overlap by about
+    10 km; grouping them avoids counting the same acquisition twice in the overlaps.
+    """
+    return (item.datetime.date(), item.properties.get("platform", ""))
+
+
 def composite(items, grid: Grid, aoi: gpd.GeoDataFrame | None = None,
               verbose: bool = True) -> tuple[xr.Dataset, pd.DataFrame]:
-    """Median NDVI of all clear observations, and number of clear observations per pixel."""
-    stack, logs = [], []
-    for n, item in enumerate(items, 1):
-        try:
-            ndvi, log = scene_ndvi(item, grid)
-        except Exception as exc:  # keep going, but record the failure
-            ndvi, log = None, {"id": item.id, "date": item.datetime.date(),
-                               "status": f"error: {exc}"}
-        logs.append(log)
-        if ndvi is not None:
-            stack.append(ndvi.values)
-        if verbose:
-            print(f"[{n}/{len(items)}] {log['id']}: {log['status']}"
-                  + (f", clear {log['clear_%']}%" if log.get("status") == "ok" else ""))
+    """Median NDVI over acquisition dates, and number of clear dates per pixel.
+
+    The tiles of each acquisition are first merged into one mosaic (mean where they
+    overlap), so every date weighs the same in the median.
+    """
+    groups: dict = {}
+    for item in items:
+        groups.setdefault(acquisition_key(item), []).append(item)
+
+    stack, logs, n = [], [], 0
+    for key in sorted(groups):
+        tiles = []
+        for item in groups[key]:
+            n += 1
+            try:
+                ndvi, log = scene_ndvi(item, grid)
+            except Exception as exc:  # keep going, but record the failure
+                ndvi, log = None, {"id": item.id, "date": item.datetime.date(),
+                                   "status": f"error: {exc}"}
+            log["acquisition"] = f"{key[0]} {key[1]}".strip()
+            logs.append(log)
+            if ndvi is not None:
+                tiles.append(ndvi.values)
+            if verbose:
+                print(f"[{n}/{len(items)}] {log['id']}: {log['status']}"
+                      + (f", clear {log['clear_%']}%" if log.get("status") == "ok" else ""))
+        if tiles:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                stack.append(np.nanmean(np.stack(tiles), axis=0))
 
     if not stack:
         raise ValueError("No scene could be read for this grid and period.")
 
     cube = np.stack(stack)
     template = _empty(grid)
-    with np.errstate(all="ignore"):
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            median = np.nanmedian(cube, axis=0).astype("float32")
-    n_clear = np.isfinite(cube).sum(axis=0).astype("int16")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        median = np.nanmedian(cube, axis=0).astype("float32")
+    n_clear = np.isfinite(cube).sum(axis=0).astype("float32")
 
     ds = xr.Dataset({
         "ndvi": template.copy(data=median),
-        "n_clear": template.copy(data=n_clear.astype("float32")),
+        "n_clear": template.copy(data=n_clear),
     })
+    ds.attrs["dates"] = len(stack)
     if aoi is not None:
         ds = mask_to_aoi(ds, aoi, grid)
+        ds.attrs["dates"] = len(stack)
     return ds, pd.DataFrame(logs)
+
+
+def stable_forest(ndvi_layers, landcover: xr.DataArray, tree_class: int = 10,
+                  min_ndvi: float = 0.7) -> xr.DataArray:
+    """Reference pixels for radiometric normalisation (pseudo-invariant features).
+
+    Tree cover in ESA WorldCover with NDVI above `min_ndvi` in every season compared:
+    dense forest that did not change, whose NDVI should stay almost constant.
+    """
+    mask = landcover == tree_class
+    for nd in ndvi_layers:
+        mask = mask & (nd > min_ndvi)
+    return mask
+
+
+def reference_ndvi(ndvi: xr.DataArray, reference: xr.DataArray) -> float:
+    """Median NDVI of the reference pixels in one season."""
+    return float(ndvi.where(reference).median())
 
 
 def mask_to_aoi(obj, aoi: gpd.GeoDataFrame, grid: Grid):
