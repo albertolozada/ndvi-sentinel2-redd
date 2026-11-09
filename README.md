@@ -49,14 +49,38 @@ Contains modified Copernicus Sentinel data 2018-2025. © ESA WorldCover project 
 
 ## Results
 
-*Pending: run the notebook and fill in the main numbers, the main map and a short interpretation.*
+- **Boundary and area:** 207,923 ha measured in EPSG:32618, 130 ha (0.06 %) more than the 207,794 ha recorded in RUNAP.
+- **terrio vs GDAL:** 251,001 pixels of a Sentinel-2 red band read with both libraries, 100 % identical.
+- **Reference forest:** median NDVI 0.775 in 2019 and 0.840 in 2025 over 122,221 ha of stable forest; the +0.064 shift was removed before measuring change.
+- **Potential vegetation loss, dry season 2019 vs 2025 (40 m):** 7,629 ha, 3.7 % of the park. 5,436 ha on WorldCover tree cover (3.2 % of that class) and 2,183 ha on grassland (5.7 %).
+
+![Potential loss vs Hansen GFC](outputs/maps/loss_vs_gfc.png)
+
+**Agreement with Hansen GFC (loss 2019-2024).** "Confirmed" is the share of our loss that GFC also maps; "detected" is the share of GFC loss we find. In brackets, with one pixel of tolerance.
+
+| Detection | Grid | NDVI loss | Confirmed by GFC | GFC loss detected |
+|---|---|---|---|---|
+| Two seasons, 2019 vs 2025 | 40 m | 7,629 ha | 81.4 % (89.0 %) | 19.6 % (40.9 %) |
+| Two seasons, 2019 vs 2025 | 100 m | 5,009 ha | 84.3 % (93.6 %) | 12.8 % (34.4 %) |
+| Drop in any season 2020-2025 | 100 m | 26,230 ha | 61.8 % (76.2 %) | 49.0 % (82.0 %) |
+| Drop persisting two seasons | 100 m | 8,791 ha | 81.6 % (92.6 %) | 21.7 % (51.7 %) |
+
+What dry-season NDVI flags is mostly real loss: eight to nine out of ten hectares are confirmed by GFC. But it misses much of the loss GFC records, because many clearings turn into green pasture or regrowth before the next dry season. Accepting a drop in any single season finds most GFC loss, at the cost of flagging very dry or burnt seasons on land that was already open. In an audit, this makes the method a screening of where to look rather than a replacement for loss mapping.
+
+![Potential loss by season](outputs/maps/loss_by_season.png)
+
+**Year by year.** GFC loss inside the 2019 dense vegetation was 4,867, 8,385, 4,553, 6,794, 680 and 4,414 ha in 2019-2024. The persistent NDVI drops start mostly in the dry seasons of 2022 (3,203 ha) and 2025 (2,003 ha): dry-season composites see a clearing one to two years after the annual Landsat product, so the two series compare as trends, not year by year.
+
+![Dry-season NDVI series](outputs/maps/ndvi_series.png)
+
+**Dry-season series.** The area with normalised NDVI below 0.5 (water excluded) was 2,253 ha in 2019, peaked at 18,403 ha in 2022 and fell to 1,368 ha in 2025. The low values of 2022 follow the existing pasture mosaic, not cloud shapes, and also appear where that season had 15 to 20 clear dates: an unusually dry or burnt season on land that was already open.
 
 ## Limitations and data quality
 
 - **CRS used for areas and distances:** EPSG:32618 (WGS 84 / UTM zone 18N)
-- **Completeness:** share of the park with valid NDVI in both seasons, and scenes that could not be read, are reported in the notebook
+- **Completeness:** valid NDVI in both seasons on 100 % of the park; all 162 scenes of the 2019 and 2025 seasons were read
 - **NDVI loss is not deforestation:** it also responds to phenology, drought, fire and residual clouds. The comparison with Hansen GFC measures how much of it matches mapped tree cover loss; official data (IDEAM / SMByC) remain the reference for Colombia
-- **Clouds:** persistent cloud cover in the Amazon leaves some pixels with few or no clear observations
+- **Clouds:** persistent cloud cover leaves some pixels with few clear dates, mainly in the north-west of the park
 - **Normalisation:** assumes the reference forest did not change; degradation inside it would be partly removed. The shift removed is reported in the notebook
 - **Land cover:** ESA WorldCover is a single date (2021), between the two seasons compared
 - **Reflectance offset:** detected per scene from the pixels (5th percentile of clear red DN); the notebook logs the declared and the applied offset of every scene
@@ -76,6 +100,8 @@ conda activate ndvi-sentinel2-redd
 jupyter lab notebooks/01_analysis.ipynb
 ```
 
+Without conda, a virtual environment works too: `pip install "terrio[xarray]" pystac-client rioxarray geopandas contextily matplotlib-scalebar requests jupyterlab`.
+
 ## Repository structure
 
 ```
@@ -93,7 +119,7 @@ jupyter lab notebooks/01_analysis.ipynb
 
 ## Resumen en español
 
-Este proyecto mide el cambio del NDVI de Sentinel-2 en la estación seca dentro del Parque Nacional Natural Tinigua (Meta, Colombia): compara 2019 con 2025, sigue la evolución año a año, cruza la pérdida potencial de vegetación con la cobertura de ESA WorldCover 2021 y la contrasta con la pérdida de bosque de Hansen Global Forest Change. El límite oficial del parque se descarga del RUNAP, todas las mediciones se hacen en EPSG:32618 y las bandas se leen directamente desde los COG públicos con terrio, una librería en Rust que no necesita GDAL. Como terrio es reciente, el notebook compara su lectura con la de GDAL antes de usarla. La pérdida de NDVI es una señal para revisar, no un mapa de deforestación.
+Este proyecto mide el cambio del NDVI de Sentinel-2 en la estación seca dentro del Parque Nacional Natural Tinigua (Meta, Colombia): compara 2019 con 2025, sigue la evolución año a año, cruza la pérdida potencial de vegetación con la cobertura de ESA WorldCover 2021 y la contrasta con la pérdida de bosque de Hansen Global Forest Change. El límite oficial del parque se descarga del RUNAP, todas las mediciones se hacen en EPSG:32618 y las bandas se leen directamente desde los COG públicos con terrio, una librería en Rust que no necesita GDAL. Como terrio es reciente, el notebook compara su lectura con la de GDAL antes de usarla. Entre las estaciones secas de 2019 y 2025 se detectan 7.629 ha de pérdida potencial de vegetación (3,7 % del parque); el 81 % coincide con la pérdida de bosque de Hansen GFC, aunque solo cubre una parte de ella, porque muchos desmontes ya están cubiertos de pasto o rastrojo en la estación seca siguiente. La pérdida de NDVI es una señal para revisar, no un mapa de deforestación.
 
 ## Author
 
