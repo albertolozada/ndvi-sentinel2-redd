@@ -45,6 +45,7 @@ Contains modified Copernicus Sentinel data 2018-2025. © ESA WorldCover project 
 7. Flag **potential vegetation loss**: pixels with NDVI above 0.6 in 2019 whose normalised NDVI dropped by more than 0.2 by 2025, excluding permanent water, and cross them with ESA WorldCover 2021.
 8. Compare the loss with Hansen Global Forest Change (loss years 2019-2024), also read with terrio: share of our loss confirmed by GFC and share of GFC loss detected, exactly and with one pixel of tolerance.
 9. Repeat the composite for every dry season 2019-2025 on a 100 m grid, normalised with the forest that stays above 0.7 in every season.
+10. Detect loss year by year: on the 100 m series, flag dense vegetation whose normalised NDVI drops by more than 0.2 in **any** season after 2019 (which also catches areas cleared and then regrown), record the season of the first drop, and compare it with Hansen GFC, also per year.
 
 ## Results
 

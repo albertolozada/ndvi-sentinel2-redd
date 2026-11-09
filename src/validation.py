@@ -38,17 +38,12 @@ def compare_window(href: str, bounds, crs: str) -> dict:
     return result
 
 
-def gfc_loss_on_grid(urls, grid, first_year: int, last_year: int):
-    """Share of each analysis-grid cell lost in GFC between two years (0 to 1).
-
-    GFC 'lossyear' (about 30 m) is read with terrio onto a grid twice as fine as the
-    analysis grid (nearest neighbour, so year codes are not mixed), turned into a
-    0/1 loss mask for `first_year`..`last_year`, and averaged over 2 x 2 blocks.
-    """
-    import numpy as np
+def _gfc_codes(urls, grid):
+    """GFC 'lossyear' codes on a grid twice as fine as `grid` (nearest neighbour,
+    so year codes are not mixed). Returns (fine grid, 2-D array of codes)."""
     from terrio.rio.enums import Resampling
     from terrio.rio.transform import from_origin
-    from src.s2 import Grid, read_to_grid, _empty
+    from src.s2 import Grid, read_to_grid
 
     fine = Grid(grid.crs, from_origin(grid.transform.c, grid.transform.f, grid.res / 2, grid.res / 2),
                 (grid.shape[0] * 2, grid.shape[1] * 2), grid.res / 2)
@@ -59,13 +54,35 @@ def gfc_loss_on_grid(urls, grid, first_year: int, last_year: int):
             code = part if code is None else code.fillna(part)
     if code is None:
         raise ValueError("No GFC tile overlaps the grid")
+    return fine, code.values
 
+
+def gfc_loss_on_grid(urls, grid, first_year: int, last_year: int):
+    """Share of each analysis-grid cell lost in GFC between two years (0 to 1).
+
+    GFC 'lossyear' (about 30 m) is read with terrio onto a grid twice as fine as the
+    analysis grid, turned into a 0/1 loss mask for `first_year`..`last_year`, and
+    averaged over 2 x 2 blocks.
+    """
+    from src.s2 import _empty
+
+    _, v = _gfc_codes(urls, grid)
     lo, hi = first_year - 2000, last_year - 2000
-    v = code.values
     loss = np.where(np.isfinite(v), ((v >= lo) & (v <= hi)).astype("float32"), np.nan)
     rows, cols = grid.shape
     share = loss.reshape(rows, 2, cols, 2).mean(axis=(1, 3))
     return _empty(grid).copy(data=share.astype("float32"))
+
+
+def gfc_loss_by_year(urls, grid, years, domain=None) -> dict:
+    """GFC loss area (ha) per calendar year, optionally only inside a boolean
+    domain defined on `grid` (it is applied to the 2 x 2 finer GFC pixels)."""
+    fine, v = _gfc_codes(urls, grid)
+    inside = np.isfinite(v)
+    if domain is not None:
+        d = np.asarray(domain, bool).repeat(2, axis=0).repeat(2, axis=1)
+        inside &= d
+    return {y: round(float(((v == y - 2000) & inside).sum()) * fine.pixel_area_ha, 1) for y in years}
 
 
 def _dilate(mask):
