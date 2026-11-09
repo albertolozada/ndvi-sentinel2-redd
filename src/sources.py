@@ -3,6 +3,8 @@
 - Protected area boundary: RUNAP (Registro Unico Nacional de Areas Protegidas),
   Parques Nacionales Naturales de Colombia, ArcGIS FeatureServer.
 - Land cover: ESA WorldCover 10 m 2021 v200 (CC BY 4.0), public COG tiles on AWS.
+- Independent forest loss: Hansen / UMD Global Forest Change v1.13 (2000-2025, CC BY 4.0),
+  public GeoTIFF tiles on Google Cloud Storage.
 
 Nothing is stored in the repository: the notebook downloads what it needs into data/.
 """
@@ -33,6 +35,11 @@ RUNAP_FIELDS = [
 WORLDCOVER_URL = (
     "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/"
     "ESA_WorldCover_10m_2021_v200_{tile}_Map.tif"
+)
+
+GFC_URL = (
+    "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/"
+    "Hansen_GFC-2025-v1.13_{layer}_{tile}.tif"
 )
 
 # ESA WorldCover v200 classes
@@ -136,3 +143,24 @@ def worldcover_urls(bounds_4326) -> list[str]:
 def class_names(values) -> list[str]:
     return [WORLDCOVER_CLASSES.get(int(v), f"class {int(v)}") if not np.isnan(v) else "no data"
             for v in values]
+
+
+def gfc_tiles(bounds_4326) -> list[str]:
+    """Names of the 10x10 degree GFC tiles covering a bbox, e.g. '10N_080W'.
+
+    GFC tiles are named after their top-left (north-west) corner.
+    """
+    minx, miny, maxx, maxy = bounds_4326
+    tiles = []
+    for top in range(int(math.ceil(maxy / 10) * 10), int(math.floor(miny / 10) * 10), -10):
+        if top == miny:  # bbox edge exactly on a tile edge
+            continue
+        for left in range(int(math.floor(minx / 10) * 10), int(math.ceil(maxx / 10) * 10), 10):
+            ns = f"{abs(top):02d}{'N' if top >= 0 else 'S'}"
+            ew = f"{abs(left):03d}{'E' if left >= 0 else 'W'}"
+            tiles.append(f"{ns}_{ew}")
+    return tiles
+
+
+def gfc_urls(bounds_4326, layer: str = "lossyear") -> list[str]:
+    return [GFC_URL.format(layer=layer, tile=t) for t in gfc_tiles(bounds_4326)]
