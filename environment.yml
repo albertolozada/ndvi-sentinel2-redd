@@ -1,4 +1,4 @@
-name: geo-project
+name: ndvi-sentinel2-redd
 channels:
   - conda-forge
 dependencies:
@@ -6,15 +6,16 @@ dependencies:
   - geopandas
   - shapely
   - pyproj
-  - rasterio
-  - rioxarray
-  - xarray
   - numpy
   - pandas
+  - xarray
+  - dask
+  - requests
   - matplotlib
   - matplotlib-scalebar
   - contextily
-  - folium
   - pystac-client
+  - terrio
+  - rioxarray      # GDAL-based reference for the terrio cross-check
   - jupyterlab
   - pip
