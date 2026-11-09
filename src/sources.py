@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from pathlib import Path
 
 import geopandas as gpd
@@ -51,7 +52,8 @@ WORLDCOVER_CLASSES = {
 
 
 def load_runap(name: str, category: str | None = None,
-               cache: str | Path | None = None, timeout: int = 120) -> gpd.GeoDataFrame:
+               cache: str | Path | None = None, fallback: str | Path | None = None,
+               timeout: int = 120, attempts: int = 3) -> gpd.GeoDataFrame:
     """Download a protected area boundary from RUNAP as a GeoDataFrame (EPSG:4326).
 
     Parameters
@@ -63,6 +65,11 @@ def load_runap(name: str, category: str | None = None,
     cache : path, optional
         GeoJSON file. If it exists it is read instead of calling the service;
         otherwise the download is saved there.
+    fallback : path, optional
+        Versioned copy of the boundary, used only if the service does not answer.
+    attempts : int
+        The service is sometimes slow or returns server errors: each request is
+        retried this many times, waiting a little longer each time.
     """
     if cache is not None and Path(cache).exists():
         return gpd.read_file(cache)
@@ -76,11 +83,30 @@ def load_runap(name: str, category: str | None = None,
         "outSR": 4326,
         "f": "geojson",
     }
-    r = requests.get(RUNAP_QUERY, params=params, timeout=timeout)
-    r.raise_for_status()
-    data = r.json()
-    if "error" in data:
-        raise RuntimeError(f"RUNAP service error: {data['error']}")
+
+    data, last_error = None, None
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.get(RUNAP_QUERY, params=params, timeout=timeout)
+            r.raise_for_status()
+            data = r.json()
+            if "error" in data:
+                raise RuntimeError(f"RUNAP service error: {data['error']}")
+            break
+        except Exception as exc:
+            last_error, data = exc, None
+            if attempt < attempts:
+                wait = 15 * attempt
+                print(f"RUNAP attempt {attempt} failed ({exc.__class__.__name__}), retrying in {wait} s")
+                time.sleep(wait)
+
+    if data is None:
+        if fallback is not None and Path(fallback).exists():
+            print(f"RUNAP did not answer ({last_error.__class__.__name__}): "
+                  f"using the versioned copy {fallback}")
+            return gpd.read_file(fallback)
+        raise RuntimeError(f"RUNAP did not answer after {attempts} attempts: {last_error}")
+
     if not data.get("features"):
         raise ValueError(f"RUNAP: no protected area matches name={name!r}, category={category!r}")
 
